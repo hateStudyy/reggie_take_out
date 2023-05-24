@@ -13,6 +13,8 @@ import com.itheima.reggie.service.SetmealService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
@@ -48,6 +50,7 @@ public class SetmealController {
      * @return
      */
     @PostMapping
+    @CacheEvict(value = "setmealCache", allEntries = true)// allEntries 删除分类下所有的缓存数据
     public R<String> save(@RequestBody SetmealDto setmealDto) {
         log.info("套餐信息: {}",setmealDto);
         setmealService.saveWithDish(setmealDto);
@@ -99,6 +102,7 @@ public class SetmealController {
      * @return
      */
     @DeleteMapping
+    @CacheEvict(value = "setmealCache", allEntries = true)// allEntries 删除分类下所有的缓存数据
     public R<String> delete(@RequestParam List<Long> ids){
         log.info("ids: {}",ids);
 
@@ -113,22 +117,22 @@ public class SetmealController {
      * @return
      */
     @GetMapping("/list")
+    //使用spring cache 注解编写
+    @Cacheable(value = "setmealCache", key = "#setmeal.categoryId + '_' + #setmeal.status")
     public R<List<Setmeal>> list(Setmeal setmeal) {
         //自己实现套餐的redis代码
         //dto对象
         List<Setmeal> list = null;
-
-        String key = "setmeal_" +setmeal.getCategoryId() + "_" +setmeal.getStatus();
-
-        //先从redis中获取缓存数据
-        list = (List<Setmeal>) redisTemplate.opsForValue().get(key);
-
-        if(list != null) {
-            //缓存中存在，直接返回 无需查询数据库
-            return R.success(list);
-        }
-
-
+//
+//        String key = "setmeal_" +setmeal.getCategoryId() + "_" +setmeal.getStatus();
+//
+//        //先从redis中获取缓存数据
+//        list = (List<Setmeal>) redisTemplate.opsForValue().get(key);
+//
+//        if(list != null) {
+//            //缓存中存在，直接返回 无需查询数据库
+//            return R.success(list);
+//        }
         //如果不存在，需要查询数据库
 
         LambdaQueryWrapper<Setmeal> queryWrapper = new LambdaQueryWrapper<>();
@@ -138,8 +142,21 @@ public class SetmealController {
         queryWrapper.orderByDesc(Setmeal::getUpdateTime);
         list = setmealService.list(queryWrapper);
 
-        //查完后，把数据缓存到redis
-        redisTemplate.opsForValue().set(key, list,60, TimeUnit.MINUTES);
+//        //查完后，把数据缓存到redis
+//        redisTemplate.opsForValue().set(key, list,60, TimeUnit.MINUTES);
         return R.success(list);
+    }
+
+    /**
+     * 2023/5/25新增
+     * 修改套餐数据
+     * 根据条件回表查询
+     */
+    @GetMapping("/{id}")
+    @CacheEvict(value = "setmealCache", allEntries = true)// allEntries 删除分类下所有的缓存数据
+    public R<Setmeal> getById(@PathVariable Long id){
+        Setmeal setmeal = setmealService.getById(id);
+        return R.success(setmeal);
+        //修改后需要删除缓存中的数据
     }
 }
