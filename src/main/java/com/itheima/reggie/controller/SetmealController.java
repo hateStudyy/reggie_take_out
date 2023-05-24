@@ -3,6 +3,7 @@ package com.itheima.reggie.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.itheima.reggie.common.R;
+import com.itheima.reggie.dto.DishDto;
 import com.itheima.reggie.dto.SetmealDto;
 import com.itheima.reggie.entity.Category;
 import com.itheima.reggie.entity.Setmeal;
@@ -12,10 +13,12 @@ import com.itheima.reggie.service.SetmealService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -35,6 +38,9 @@ public class SetmealController {
 
     @Autowired
     private CategoryService categoryService;
+
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     /**
      * 新增套餐
@@ -108,12 +114,32 @@ public class SetmealController {
      */
     @GetMapping("/list")
     public R<List<Setmeal>> list(Setmeal setmeal) {
+        //自己实现套餐的redis代码
+        //dto对象
+        List<Setmeal> list = null;
+
+        String key = "setmeal_" +setmeal.getCategoryId() + "_" +setmeal.getStatus();
+
+        //先从redis中获取缓存数据
+        list = (List<Setmeal>) redisTemplate.opsForValue().get(key);
+
+        if(list != null) {
+            //缓存中存在，直接返回 无需查询数据库
+            return R.success(list);
+        }
+
+
+        //如果不存在，需要查询数据库
+
         LambdaQueryWrapper<Setmeal> queryWrapper = new LambdaQueryWrapper<>();
 
         queryWrapper.eq(setmeal.getCategoryId()!= null,Setmeal::getCategoryId,setmeal.getCategoryId());
         queryWrapper.eq(setmeal.getStatus() != null,Setmeal::getStatus,setmeal.getStatus());
         queryWrapper.orderByDesc(Setmeal::getUpdateTime);
-        List<Setmeal> list = setmealService.list(queryWrapper);
+        list = setmealService.list(queryWrapper);
+
+        //查完后，把数据缓存到redis
+        redisTemplate.opsForValue().set(key, list,60, TimeUnit.MINUTES);
         return R.success(list);
     }
 }
